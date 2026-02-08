@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Voice Transcribe Pro</title>
+    <style>
+        :root {
+            --bg: #121212;
+            --surface: #1e1e1e;
+            --accent-blue: #4285f4;
+            --accent-red: #ea4335;
+            --text-main: #f1f1f1;
+            --text-dim: #9aa0a6;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text-main);
+            margin: 0;
+            display: flex; flex-direction: column; height: 100vh;
+            overflow: hidden;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        header {
+            padding: 15px; background: var(--surface);
+            text-align: center; font-weight: bold;
+            border-bottom: 1px solid #333; font-size: 1.1rem;
+        }
+
+        #transcript-container {
+            flex: 1; padding: 25px; overflow-y: auto;
+            font-size: 1.6rem; line-height: 1.5;
+            scroll-behavior: smooth;
+        }
+
+        .interim { color: var(--text-dim); font-style: italic; }
+
+        .footer {
+            padding: 20px; background: var(--surface);
+            display: flex; flex-direction: column; align-items: center; gap: 15px;
+            border-top: 1px solid #333; padding-bottom: calc(20px + env(safe-area-inset-bottom));
+        }
+
+        #mainBtn {
+            width: 72px; height: 72px; border-radius: 50%; border: none;
+            cursor: pointer; display: flex; align-items: center; justify-content: center;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+        }
+
+        .btn-off { background: var(--accent-blue); }
+        .btn-on { 
+            background: var(--accent-red); 
+            transform: scale(1.1); 
+            box-shadow: 0 0 25px rgba(234, 67, 53, 0.5); 
+        }
+
+        .status-text { font-size: 14px; color: var(--text-dim); height: 20px; text-align: center; }
+
+        .btn-group { display: flex; gap: 10px; }
+        
+        button.secondary {
+            background: transparent; color: var(--text-dim);
+            border: 1px solid #444; padding: 8px 18px; border-radius: 20px;
+            cursor: pointer; font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+
+<header>AI LIVE TRANSCRIBE</header>
+
+<div id="transcript-container">
+    <span id="final-text"></span><span id="interim-text" class="interim"></span>
+</div>
+
+<div class="footer">
+    <div id="status" class="status-text">Нажмите, чтобы начать</div>
+    <button id="mainBtn" class="btn-off">
+        <svg fill="white" width="32" height="32" viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+    </button>
+    <div class="btn-group">
+        <button id="clearBtn" class="secondary">Очистить</button>
+        <button id="copyBtn" class="secondary">Копировать</button>
+    </div>
+</div>
+
+<script>
+    // --- НАСТРОЙКИ ---
+    const HF_TOKEN = "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"; 
+    // ------------------
+
+    const mainBtn = document.getElementById('mainBtn');
+    const statusText = document.getElementById('status');
+    const finalTextDisplay = document.getElementById('final-text');
+    const interimTextDisplay = document.getElementById('interim-text');
+    const container = document.getElementById('transcript-container');
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+        statusText.innerText = "Ваш браузер не поддерживает Speech API";
+    } else {
+        const recognition = new SpeechRecognition();
+        recognition.lang = 'ru-RU';
+        recognition.continuous = true;
+        recognition.interimResults = true;
+
+        let isListening = false;
+        let shouldBeListening = false;
+
+        // ИИ Пунктуация
+        async function getBeautifulText(rawText) {
+            if (!HF_TOKEN || HF_TOKEN.includes("ВСТАВЬ")) return fixSimple(rawText);
+            try {
+                const response = await fetch(
+                    "https://api-inference.huggingface.co/models/kredit/punct_ru",
+                    {
+                        headers: { 
+                            "Authorization": `Bearer ${HF_TOKEN}`,
+                            "Content-Type": "application/json"
+                        },
+                        method: "POST",
+                        body: JSON.stringify({ inputs: rawText.toLowerCase() }),
+                    }
+                );
+                if (!response.ok) throw new Error("CORS/Network error");
+                const result = await response.json();
+                let text = Array.isArray(result) ? result[0].generated_text : result.generated_text;
+                return (text || rawText) + " ";
+            } catch (e) {
+                console.warn("AI Fallback:", e);
+                return fixSimple(rawText);
+            }
+        }
+
+        function fixSimple(text) {
+            let t = text.trim();
+            if (!t) return "";
+            return t.charAt(0).toUpperCase() + t.slice(1) + ". ";
+        }
+
+        // Обработка клика (Mobile Friendly)
+        mainBtn.onclick = () => {
+            if (window.location.protocol === 'file:') {
+                alert("Микрофон на мобильных и в Chrome работает корректно только через HTTPS. Используйте CodePen или сервер.");
+            }
+
+            if (!isListening) {
+                shouldBeListening = true;
+                try {
+                    recognition.start();
+                } catch (e) {
+                    recognition.stop();
+                    setTimeout(() => recognition.start(), 200);
+                }
+            } else {
+                shouldBeListening = false;
+                recognition.stop();
+            }
+        };
+
+        recognition.onstart = () => {
+            isListening = true;
+            mainBtn.className = "btn-on";
+            statusText.innerText = "Слушаю...";
+        };
+
+        recognition.onend = () => {
+            isListening = false;
+            if (shouldBeListening) {
+                recognition.start();
+            } else {
+                mainBtn.className = "btn-off";
+                statusText.innerText = "Нажмите, чтобы начать";
+                interimTextDisplay.innerText = "";
+            }
+        };
+
+        recognition.onresult = async (event) => {
+            let interim = '';
+            for (let i = event.resultIndex; i < event.results.length; ++i) {
+                if (event.results[i].isFinal) {
+                    const raw = event.results[i][0].transcript;
+                    statusText.innerText = "ИИ обрабатывает...";
+                    const pretty = await getBeautifulText(raw);
+                    finalTextDisplay.innerHTML += pretty;
+                    statusText.innerText = "Слушаю...";
+                } else {
+                    interim += event.results[i][0].transcript;
+                }
+            }
+            interimTextDisplay.innerText = interim;
+            container.scrollTop = container.scrollHeight;
+        };
+
+        recognition.onerror = (e) => {
+            console.error("Error:", e.error);
+            if (e.error === 'no-speech' && shouldBeListening) {
+                // Игнорируем молчание, продолжаем слушать
+            } else if (e.error === 'not-allowed') {
+                statusText.innerText = "Доступ к микрофону заблокирован";
+                shouldBeListening = false;
+            }
+        };
+
+        // Дополнительные функции
+        document.getElementById('clearBtn').onclick = () => {
+            finalTextDisplay.innerHTML = '';
+            interimTextDisplay.innerHTML = '';
+        };
+
+        document.getElementById('copyBtn').onclick = () => {
+            const text = finalTextDisplay.innerText;
+            navigator.clipboard.writeText(text).then(() => {
+                const oldText = statusText.innerText;
+                statusText.innerText = "Текст скопирован!";
+                setTimeout(() => statusText.innerText = oldText, 2000);
+            });
+        };
+    }
+</script>
+</body>
+</html>
