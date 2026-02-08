@@ -47,7 +47,7 @@
         #mainBtn {
             width: 72px; height: 72px; border-radius: 50%; border: none;
             cursor: pointer; display: flex; align-items: center; justify-content: center;
-            transition: all 0.3s ease;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         .btn-off { background: var(--accent-blue); }
@@ -108,14 +108,13 @@
 
         let isListening = false;
         let shouldBeListening = false;
-        let lastProcessedText = ""; 
+        let lastProcessedText = ""; // Фильтр дубликатов
 
-        // Функция форматирования текста
         async function getBeautifulText(rawText) {
             const trimmedText = rawText.trim();
             const words = trimmedText.split(/\s+/);
 
-            // Если фраза слишком короткая, выводим её без ИИ
+            // Если фраза слишком короткая, выводим её просто так (убирает глюки ИИ)
             if (words.length <= 2) return fixSimple(trimmedText);
 
             try {
@@ -144,10 +143,9 @@
             return text.charAt(0).toUpperCase() + text.slice(1) + ". ";
         }
 
-        // Логика кнопки включения
         mainBtn.onclick = () => {
             if (window.location.protocol === 'file:') {
-                alert("Микрофон на смартфонах работает только через HTTPS (GitHub Pages).");
+                alert("Микрофон на смартфонах работает только через HTTPS (GitHub Pages или CodePen).");
             }
 
             if (!isListening) {
@@ -167,8 +165,8 @@
 
         recognition.onend = () => {
             isListening = false;
-            // Автоматический перезапуск
             if (shouldBeListening) {
+                // Авто-рестарт если микрофон отключился сам
                 recognition.start();
             } else {
                 mainBtn.className = "btn-off";
@@ -183,7 +181,7 @@
                 const transcript = event.results[i][0].transcript.trim();
                 
                 if (event.results[i].isFinal) {
-                    // ПРОВЕРКА НА ДУБЛИКАТ
+                    // Фильтр дублей: не обрабатываем, если фраза совпадает с прошлой
                     if (transcript === lastProcessedText) continue;
                     lastProcessedText = transcript;
 
@@ -202,11 +200,10 @@
         recognition.onerror = (e) => {
             console.error("Speech Error:", e.error);
             if (e.error === 'not-allowed') {
-                statusText.innerText = "Разрешите доступ к микрофону";
+                statusText.innerText = "Доступ запрещен. Включите HTTPS.";
             }
         };
 
-        // Кнопки управления
         document.getElementById('clearBtn').onclick = () => {
             finalTextDisplay.innerHTML = '';
             interimTextDisplay.innerHTML = '';
@@ -216,7 +213,7 @@
         document.getElementById('copyBtn').onclick = () => {
             navigator.clipboard.writeText(finalTextDisplay.innerText).then(() => {
                 const old = statusText.innerText;
-                statusText.innerText = "Текст скопирован!";
+                statusText.innerText = "Скопировано!";
                 setTimeout(() => statusText.innerText = old, 1500);
             });
         };
